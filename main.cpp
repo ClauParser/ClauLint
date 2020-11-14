@@ -462,7 +462,7 @@ namespace Lint {
 		que.push(ValidationInfo(textUT, schemaUT));
 
 		while (!que.empty()) {
-			auto& iter = que.front();
+			auto iter = que.front();
 			que.pop();
 
 			// schemaUT..
@@ -474,6 +474,11 @@ namespace Lint {
 					Option opt_data = OptionFrom(iter.nowSchemaUT->GetItemList(iter.itCount).Get().ToString(), eventUT, styleMap);
 
 
+					// DoA - chk minimum, maximum, type, regex?, enum? 
+					// DoB - chk event?
+					// chk optional, required, need?
+					// print_off?
+
 
 					iter.index++;
 					iter.itCount++;
@@ -484,7 +489,11 @@ namespace Lint {
 					// key = { } or  { }
 					Option opt_key = OptionFrom(iter.nowSchemaUT->GetItemList(iter.itCount).GetName().ToString(), eventUT, styleMap);
 
-
+					// DoA - chk minimum, maximum, type, regex?, enum? 
+					// DoB - chk event?
+					// chk optional, required, need?
+					// chk minItems, maxItems, 
+					// print_off?
 
 					iter.index++;
 					iter.utCount++;
@@ -495,6 +504,9 @@ namespace Lint {
 					que.push(iter);
 					que.push(Lint::ValidationInfo(iter.nowTextUT->GetUserTypeList(iter.utCount - 1), iter.nowSchemaUT->GetUserTypeList(iter.utCount - 1)));
 				}
+			}
+			else { // i == iter.nowSchemaUT->GetIListSize()
+				// chk visited...
 			}
 		}
 
@@ -531,7 +543,7 @@ int main(int argc, char* argv[]) // program_name text_file schema_file
 
 
 		// chk schemaUT has  Text = { }
-		auto x = schemaUT.GetUserTypeItem("text");
+		auto x = schemaUT.GetUserTypeItem("Text");
 
 		if (x.empty()) {
 			std::cout << "schema is not valid\n";

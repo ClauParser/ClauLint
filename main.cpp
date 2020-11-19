@@ -1,76 +1,59 @@
-﻿
 
-#define _CRT_SECURE_NO_WARNINGS
-
-//#include <vld.h>
 
 #include <iostream>
-#include <fstream>
-#include <string>
-#include <vector>
-#include <set>
+#include "wiz/ClauText.h"
+#include <stack>
+#include <queue>
 
+using namespace std::literals;
 
-
-// ClauText
-#define ARRAY_QUEUE std::deque // chk?
-#define VECTOR std::vector
-#include <wiz/ClauText.h>
-// ~ClauText
-
-#define ENTER '\n' // cf) std::endl
 
 namespace Lint {
-	wiz::StringBuilder builder(102400);
-	bool cout_off = false; // print yes or no?
-	wiz::Option opt;
-
-	// justOne + optional_ -> no ok?
-	// onemore + optional_ -> no ok?
 	class Option
 	{
 	public:
-		enum class Type_ { ANY, INT, FLOAT, QUOTED_STRING, STRING, DATETIME, DATETIME_A, DATETIME_B };
-
-		enum class Id_ { NONE, ID, TOTAL_ID };
-		enum class OneMore_ { NONE, ONEMORE, JUSTONE };
+		enum class Type_ { ANY, INT, FLOAT, QUOTED_STRING, STRING };
 		enum class Required_ { REQUIRED, OPTIONAL_ };
-		enum class EmptyUT_ { NONE, OFF, ON };
 
-		enum class Order_ { NONE, OFF, ON }; // with global??
-		enum class Multiple_ { NONE, OFF, ON };
+		//	enum class Multiple_ { NONE, OFF, ON };
 	public:
 		std::vector<Type_> type;
-		Id_ id;
-		OneMore_ onemore;
-		EmptyUT_ empty_ut;
+		std::vector<std::string> ids;
 		Required_ required;
-		std::string event_ids;
+		//Multiple_ multiple;
+
+		std::vector<std::string> event_ids;
+		std::vector<std::string> enum_ids;
+		std::vector<std::string> style_ids;
 
 		std::string prefix;
+
+		wiz::DataType minimum, maximum;
+		bool use_minimum = false, use_maximum = false;
+		long long minItems = 0, maxItems = 0; // todo!
+		bool use_minItems = false, use_maxItems = false; // todo!
+
+		std::string regex;
+
+		std::vector<std::string> needs;
 	public:
-		Option() : type(), //id(Id_::NONE), 
-			//onemore(OneMore_::NONE), 
-			required(Required_::REQUIRED),
-			empty_ut(EmptyUT_::NONE)
+		Option() : type(),
+			required(Required_::REQUIRED)
+			//,	multiple(Multiple_::OFF)
 		{
 			//
 		}
 	public:
+		//	Option& Multiple(Multiple_ multiple) {
+			//	this->multiple = multiple;
+		//		return *this;
+		//	}
 		Option& Type(Type_ type) {
 			this->type.push_back(type);
 			return *this;
 		}
-		Option& Id(Id_ id) {
-			this->id = id;
-			return *this;
-		}
-		Option& OneMore(OneMore_ onemore) {
-			this->onemore = onemore;
-			return *this;
-		}
-		Option& EmptyUT(EmptyUT_ empty_ut) {
-			this->empty_ut = empty_ut;
+		Option& Id(const std::string& id) {
+			this->ids.push_back(id);
 			return *this;
 		}
 		Option& Required(Required_ required) {
@@ -78,21 +61,87 @@ namespace Lint {
 			return *this;
 		}
 		Option& Event(const std::string& event_id) {
-			this->event_ids += " ";
-			this->event_ids += event_id;
+			this->event_ids.push_back(event_id);
+			return *this;
+		}
+		Option& Enum(const std::string& enum_id) {
+			this->enum_ids.push_back(enum_id);
+			return *this;
+		}
+		Option& Style(const std::string& style_id) {
+			this->style_ids.push_back(style_id);
 			return *this;
 		}
 	public:
 		// check valid function?
 		bool IsValid() const {
 			// to do
+			return false;
+		}
+	public:
+		Option operator+(const Option& other) const {
+			Option temp = *this;
+
+			for (size_t i = 0; i < other.event_ids.size(); ++i) {
+				temp.event_ids.push_back(other.event_ids[i]);
+			}
+			for (size_t i = 0; i < other.enum_ids.size(); ++i) {
+				temp.enum_ids.push_back(other.enum_ids[i]);
+			}
+			for (size_t i = 0; i < other.style_ids.size(); ++i) {
+				temp.style_ids.push_back(other.style_ids[i]);
+			}
+			for (size_t i = 0; i < other.ids.size(); ++i) {
+				temp.ids.push_back(other.ids[i]);
+			}
+
+			//if (other.multiple == Multiple_::ON) {
+			//	temp.multiple = Multiple_::ON;
+			//}
+
+
+			if (other.required == Required_::OPTIONAL_) {
+				temp.required = Required_::OPTIONAL_;
+			}
+			for (const auto& x : other.type) {
+				temp.type.push_back(x);
+			}
+
+			if (other.use_minimum) {
+				temp.use_minimum = true;
+				temp.minimum = other.minimum;
+			}
+			if (other.use_maximum) {
+				temp.use_maximum = true;
+				temp.maximum = other.maximum;
+			}
+
+			if (other.use_minItems) {
+				temp.use_minItems = true;
+				temp.minItems = other.minItems;
+			}
+			if (other.use_maxItems) {
+				temp.use_maxItems = true;
+				temp.maxItems = other.maxItems;
+			}
+			if (!other.regex.empty()) {
+				temp.regex = other.regex;
+			}
+
+			for (size_t i = 0; i < other.needs.size(); ++i) {
+				temp.needs.push_back(other.needs[i]);
+			}
+
+			return temp;
 		}
 	};
 
 
-	Option OptionFrom(const std::string& option_str)
+	// itemtype, usertype flag?
+	Option OptionFrom(const std::string& option_str, wiz::load_data::UserType* mainUT, const std::map<std::string, wiz::load_data::UserType*>& styleMap)
 	{
 		Option option;
+
 		std::string::size_type start = 0;
 		std::string::size_type find_percent = std::string::npos; // % : delimeter.
 
@@ -116,58 +165,173 @@ namespace Lint {
 
 			const std::string opt = option_str.substr(start, end_ - 1 - start + 1);
 
-			if ("%int" == opt) {
+			if (wiz::String::startsWith(opt, "%int"sv)) {
 				option.Type(Option::Type_::INT);
+
+				std::vector<std::string> temp = wiz::tokenize(opt, '@');
+
+				if (temp.size() > 1) {
+					std::string argument = temp[1].substr(1, temp[1].size() - 2);
+					wiz::load_data::UserType ut;
+					wiz::load_data::LoadData::LoadDataFromString(argument, ut);
+
+					auto item1 = ut.GetItem("minimum");
+					if (item1.size() > 0) {
+						option.use_minimum = true;
+						option.minimum = item1[0].Get();
+					}
+					auto item2 = ut.GetItem("maximum");
+					if (item2.size() > 0) {
+						option.use_maximum = true;
+						option.maximum = item2[0].Get();
+					}
+				}
 			}
-			else if ("%float" == opt) {
+			else if (wiz::String::startsWith(opt, "%float"sv)) {
 				option.Type(Option::Type_::FLOAT);
+
+				std::vector<std::string> temp = wiz::tokenize(opt, '@');
+
+				if (temp.size() > 1) {
+					std::string argument = temp[1].substr(1, temp[1].size() - 2);
+					wiz::load_data::UserType ut;
+					wiz::load_data::LoadData::LoadDataFromString(argument, ut);
+
+					auto item1 = ut.GetItem("minimum");
+					if (item1.size() > 0) {
+						option.use_minimum = true;
+						option.minimum = item1[0].Get();
+					}
+					auto item2 = ut.GetItem("maximum");
+					if (item2.size() > 0) {
+						option.use_maximum = true;
+						option.maximum = item2[0].Get();
+					}
+				}
 			}
-			else if ("%quoted_string" == opt) {
+			else if ("%quoted_string"sv == opt) {
 				option.Type(Option::Type_::QUOTED_STRING);
 			}
-			else if ("%string" == opt) {
+			else if ("%string"sv == opt) {
 				option.Type(Option::Type_::STRING);
 			}
-			else if ("%datetime" == opt) {
-				option.Type(Option::Type_::DATETIME);
+			else if (wiz::String::startsWith(opt, "%id_")) {
+				option.Id(wiz::String::substring(opt, 4));
 			}
-			else if ("%datetime_a" == opt) {
-				option.Type(Option::Type_::DATETIME_A);
-			}
-			else if ("%datetime_b" == opt) {
-				option.Type(Option::Type_::DATETIME_B);
-			}
-			else if ("%id" == opt) {
-				option.Id(Option::Id_::ID);
-			}
-			else if ("%total_id" == opt) {
-				option.Id(Option::Id_::TOTAL_ID);
-			}
-			else if ("%any" == opt) {
+			else if ("%any"sv == opt) {
 				option.Type(Option::Type_::ANY);
 			}
-			else if ("%one_more" == opt) { // x = { 1 2 3 4  } -> x = { %int%one_more%event_plus_test }
-				option.OneMore(Option::OneMore_::ONEMORE);
-			}
-			else if ("%just_one" == opt) {
-				option.OneMore(Option::OneMore_::JUSTONE);
-			}
-			else if ("%optional" == opt) {
+			else if ("%optional"sv == opt) {
 				option.Required(Option::Required_::OPTIONAL_);
 			}
-			else if ("%required" == opt) {
+			else if ("%required"sv == opt) {
 				option.Required(Option::Required_::REQUIRED);
 			}
-			else if ("%can_empty_ut" == opt) {
-				option.EmptyUT(Option::EmptyUT_::ON);
+			//	else if ("%multiple"sv == opt) {
+			//		option.Multiple(Option::Multiple_::ON);
+			//	}
+			else if (wiz::String::startsWith(opt, "%minItems"sv)) { // size check?
+				std::string argument;
+
+				{
+					std::vector<std::string> temp = wiz::tokenize(opt, '@');
+					if (temp.size() > 1) {
+						argument = temp[1].substr(1, temp[1].size() - 2);
+
+						wiz::DataType x(argument);
+						option.use_minItems = true;
+						option.minItems = x.ToInt();
+					}
+				}
+
 			}
-			else if (wiz::String::startsWith(opt, "%event_")) { // size check?
+			else if (wiz::String::startsWith(opt, "%maxItems"sv)) { // size check?
+				std::string argument;
+
+				{
+					std::vector<std::string> temp = wiz::tokenize(opt, '@');
+					if (temp.size() > 1) {
+						argument = temp[1].substr(1, temp[1].size() - 2);
+
+						wiz::DataType x(argument);
+						option.use_maxItems = true;
+						option.maxItems = x.ToInt();
+					}
+				}
+			}
+			else if (wiz::String::startsWith(opt, "%regex"sv)) {
+				std::string expr;
+
+				std::vector<std::string> temp = wiz::tokenize(opt, '@');
+				if (temp.size() > 1) {
+					expr = temp[1].substr(1, temp[1].size() - 2);
+
+					option.regex = expr;
+				}
+			}
+			else if (wiz::String::startsWith(opt, "%need"sv)) {
+				std::string name;
+
+				std::vector<std::string> temp = wiz::tokenize(opt, '@');
+
+				if (temp.size() > 1) {
+					name = temp[1].substr(1, temp[1].size() - 2);
+
+					option.needs.push_back(name);
+				}
+			}
+			else if (wiz::String::startsWith(opt, "%event_"sv)) { // size check?
 				std::string event_name = wiz::String::substring(opt, 7);
 				option.Event(std::move(event_name));
 			}
+			else if (wiz::String::startsWith(opt, "%enum_"sv)) { // size check?
+				std::string enum_name = wiz::String::substring(opt, 6);
+				option.Enum(std::move(enum_name));
+			}
+			else if (wiz::String::startsWith(opt, "%style_"sv)) {
+				std::string style_id;
+				std::string argument;
+				wiz::ExecuteData executeData;
+
+				{
+					std::vector<std::string> temp = wiz::tokenize(opt.substr(7), '@');
+					style_id = temp[0];
+					if (temp.size() > 1) {
+						argument = temp[1].substr(1, temp[1].size() - 2);
+					}
+
+					wiz::DataType x = wiz::load_data::LoadData::ToBool4(nullptr, *mainUT, argument, wiz::ExecuteData()).ToString();
+					wiz::load_data::UserType ut;
+					wiz::load_data::LoadData::LoadDataFromString(x.ToString(), ut);
+
+					for (size_t i = 0; i < ut.GetItemListSize(); ++i) {
+						executeData.info.parameters.insert({ ut.GetItemList(i).GetName(), ut.GetItemList(i).Get() });
+					}
+				}
+
+				std::string result;
+
+				auto styleUT = styleMap.at(style_id);
+
+				for (size_t i = 0; i < styleUT->GetItemListSize(); ++i) {
+					result += styleUT->GetItemList(i).Get();
+				}
+
+				for (size_t i = 0; i < styleUT->GetUserTypeListSize(); ++i) {
+					if (styleUT->GetUserTypeList(i)->GetName() == "$parameter"sv) {
+						continue;
+					}
+					result += styleUT->GetUserTypeList(i)->GetName();
+					wiz::load_data::UserType temp = *(styleUT->GetUserTypeList(i));
+
+					result += "@\'" + wiz::load_data::LoadData::ToBool4(nullptr, *mainUT, temp, executeData).ToString();
+					result += "\'";
+				}
+
+				option = option + OptionFrom(result, mainUT, styleMap);
+			}
 			else {
 				std::cout << "wrong option" << ENTER;
-				exit(-2);
 			}
 
 			start = end_;
@@ -179,16 +343,21 @@ namespace Lint {
 		return option;
 	}
 
-	// chk valid in here!
-	inline bool OptionDoA(const Option & option, const std::string & str)
+	inline bool OptionDoA(Option option, const std::string& str) 
 	{
+		if (wiz::String::startsWith(option.prefix, "$"sv)) {
+			option.prefix = option.prefix.substr(1);
+			if (option.prefix == "_"sv) {
+				option.prefix = std::string();
+			}
+		}
+
 		if (option.prefix.empty() == false &&
 			option.prefix == str) {
 			return true;
 		}
-		else if (option.prefix.empty() == false &&
-			option.prefix != str) {
-			return false;
+		if (option.prefix.empty() && str.empty()) {
+			return true;
 		}
 
 		long long count = option.type.size();
@@ -200,8 +369,27 @@ namespace Lint {
 				// pass
 				break;
 			case Option::Type_::INT:
-				if (wiz::load_data::Utility::IsInteger(str)) {
-					//
+				if (wiz::load_data::Utility::IsIntegerInJson(str)) {
+					if (option.use_minimum) {
+						wiz::DataType x(str.data());
+						if (option.minimum.ToInt() <= x.ToInt()) {
+							//
+						}
+						else {
+							std::cout << str << " is small" << ENTER;
+							count--;
+						}
+					}
+					if (option.use_maximum) {
+						wiz::DataType x(str.data());
+						if (option.maximum.ToInt() >= x.ToInt()) {
+							//
+						}
+						else {
+							std::cout << str << " is big" << ENTER;
+							count--;
+						}
+					}
 				}
 				else {
 					std::cout << str << " is not integer" << ENTER;
@@ -209,42 +397,36 @@ namespace Lint {
 				}
 				break;
 			case Option::Type_::FLOAT:
-				if (wiz::load_data::Utility::IsDouble(str)) {
-					//
+				if (wiz::load_data::Utility::IsFloatInJson(str)) {
+					if (option.use_minimum) {
+						wiz::DataType x(str.data());
+						if (option.minimum.ToFloat() <= x.ToFloat()) {
+							//
+						}
+						else {
+							std::cout << str << " is small" << ENTER;
+							count--;
+						}
+					}
+					if (option.use_maximum) {
+						wiz::DataType x(str.data());
+						if (option.maximum.ToFloat() >= x.ToFloat()) {
+							//
+						}
+						else {
+							std::cout << str << " is big" << ENTER;
+							count--;
+						}
+					}
 				}
 				else {
-					std::cout << str << " is not double" << ENTER;
+					std::cout << str << " is not float" << ENTER;
 					count--;
 				}
 				break;
-			case Option::Type_::DATETIME:
-				if (wiz::load_data::Utility::IsDate(str)) {
-					//
-				}
-				else {
-					std::cout << str << " is not date" << ENTER;
-					count--;
-				}
-				break;
-			case Option::Type_::DATETIME_A:
-				if (wiz::load_data::Utility::IsDateTimeA(str)) {
-					//
-				}
-				else {
-					std::cout << str << " is not datetime A" << ENTER;
-					count--;
-				}
-				break;
-			case Option::Type_::DATETIME_B:
-				if (wiz::load_data::Utility::IsDateTimeB(str)) {
-					//
-				}
-				else {
-					std::cout << str << " is not datetime B" << ENTER;
-					count--;
-				}
-				break;
+
 			case Option::Type_::QUOTED_STRING:
+				 // quoted string.
 				if (str.size() >= 2 && str[0] == str.back() && str.back() == '\"') { // cf '\''
 					//
 				}
@@ -252,905 +434,27 @@ namespace Lint {
 					std::cout << str << " is not quoted string" << ENTER;
 					count--;
 				}
+				
 				break;
 			case Option::Type_::STRING:
-				// pass
 				break;
 			}
 			type_list.pop_back();
 		}
 
-		return count > 0;
-	}
-
-	std::tuple<bool, Option, Option> _Check(wiz::load_data::UserType * schema_eventUT,
-		const wiz::load_data::ItemType<WIZ_STRING_TYPE> & x, const wiz::load_data::ItemType<WIZ_STRING_TYPE> & y, const std::string & real_dir) //, Order?
-	{
-		const Option var_option = OptionFrom(x.GetName().ToString()); // name, value check - not start with % ??
-		const Option val_option = OptionFrom(x.Get(0).ToString());
-
-		// val only case, ex) A = { a b c d } , a, b, c, d `s name is empty.
-		if (x.GetName().ToString().empty()) {
-			if (!y.GetName().ToString().empty()) {
-				//
-				return{ false, var_option, val_option };
-			}
-		}
-		else { // bug?
-			if (y.GetName().ToString().empty()) {
-				//
-				return{ false, var_option, val_option };
-			}
-		}
-
-		// option type check.
-		const bool name_do = OptionDoA(var_option, y.GetName().ToString());
-		const bool val_do = OptionDoA(val_option, y.Get(0).ToString());
-
-		if (name_do && val_do) {
-			// event check.
-			wiz::ClauText clauText;
-			wiz::StringTokenizer tokenizer(var_option.event_ids, &builder);
-			wiz::StringTokenizer tokenizer2(val_option.event_ids, &builder);
-			std::string event_name;
-
-			while (tokenizer.hasMoreTokens()) {
-				event_name = tokenizer.nextToken();
-
-				// for var // chk no start with __, no end with __ ?
-				wiz::load_data::LoadData::AddData(*schema_eventUT, "/./",
-					"Event = { id = __" + event_name + "__ $call = { id = " + event_name +
-					" name = " + y.GetName().ToString() + " value = " + y.Get(0).ToString() +
-					" is_usertype = FALSE " +
-					" real_dir = " + real_dir +
-					" select = NAME " +
-					" input = " + y.GetName().ToString() +
-					" } }",
-					"TRUE", wiz::ExcuteData(), &builder);
-
-				if ("TRUE" == clauText.excute_module("Main = { $call = { id = __" + event_name + "__ } }", schema_eventUT, wiz::ExcuteData(), opt, 1)) {
-					schema_eventUT->RemoveUserTypeList(schema_eventUT->GetUserTypeListSize() - 1);
-				}
-				else {
-					schema_eventUT->RemoveUserTypeList(schema_eventUT->GetUserTypeListSize() - 1);
-
-					std::cout << "clauText is not valid1" << ENTER;
-					return { false, var_option, val_option };
-				}
-			}
-			while (tokenizer2.hasMoreTokens()) {
-				event_name = tokenizer2.nextToken();
-				// for val
-				wiz::load_data::LoadData::AddData(*schema_eventUT, "/./",
-					"Event = { id = __" + event_name + "__ $call = { id = " + event_name +
-					" name = " + y.GetName().ToString() + " value = " + y.Get(0).ToString() +
-					" is_usertype = FALSE " +
-					" real_dir = " + real_dir +
-					" select = VALUE " +
-					" input = " + y.Get(0).ToString() +
-					" } }",
-					"TRUE", wiz::ExcuteData(), &builder);
-
-				if ("TRUE" == clauText.excute_module("Main = { $call = { id = __" + event_name + "__ } }", schema_eventUT, wiz::ExcuteData(), opt, 1)) {
-					schema_eventUT->RemoveUserTypeList(schema_eventUT->GetUserTypeListSize() - 1);
-				}
-				else {
-					schema_eventUT->RemoveUserTypeList(schema_eventUT->GetUserTypeListSize() - 1);
-
-					std::cout << "clauText is not valid2" << ENTER;
-					return { false, var_option, val_option };
-				}
-			}
-		}
-		else {
-			return { false, var_option, val_option };
-		}
-
-		return { true, var_option, val_option };
-	}
-
-	std::tuple<bool, Option> _Check(wiz::load_data::UserType * schema_eventUT,
-		const wiz::load_data::UserType * x, const wiz::load_data::UserType * y, const std::string & real_dir // Order?
-	)
-	{
-		Option var_option = OptionFrom(x->GetName().ToString()); // name, value check - not start with % ??
-
-		// val only case, ex) A = { a b c d } , a, b, c, d `s name is empty.
-		if (x->GetName().ToString().empty()) {
-			if (!y->GetName().ToString().empty()) {
-				//
-				return{ false, var_option };
-			}
-		}
-		else { // bug?
-			if (!y || y->GetName().ToString().empty()) {
-				//
-				return{ false, var_option };
-			}
-		}
-
-		// option type check.
-		const bool name_do = OptionDoA(var_option, y->GetName().ToString());
-
-		if (name_do) {
-			// event check.
-			wiz::ClauText clauText;
-			wiz::StringTokenizer tokenizer(var_option.event_ids, &builder);
-			std::string event_name;
-
-			while (tokenizer.hasMoreTokens()) {
-				event_name = tokenizer.nextToken();
-
-				// for var // chk no start with __, no end with __ ?
-				wiz::load_data::LoadData::AddData(*schema_eventUT, "/./",
-					"Event = { id = __" + event_name + "__ $call = { id = " + event_name +
-					" name = " + y->GetName().ToString() +
-					" is_usertype = TRUE " +
-					" real_dir = " + real_dir +
-					" select = NAME " +
-					" input = " + y->GetName().ToString() +
-					"}  } ",
-					"TRUE", wiz::ExcuteData(), &builder);
-
-				if ("TRUE" == clauText.excute_module("Main = { $call = { id = __" + event_name + "__ } }", schema_eventUT, wiz::ExcuteData(), opt, 1)) {
-					schema_eventUT->RemoveUserTypeList(schema_eventUT->GetUserTypeListSize() - 1);
-				}
-				else {
-					schema_eventUT->RemoveUserTypeList(schema_eventUT->GetUserTypeListSize() - 1);
-
-					std::cout << "clauText is not valid3" << ENTER;
-					return { false, var_option };
-				}
-			}
-		}
-		else {
-			return { false, var_option };
-		}
-
-		return { true, var_option };
-	}
-
-	// varaible!
-	std::set<std::tuple<std::string, std::string, std::string>> check_total_id;
-
-	bool Check(wiz::load_data::UserType* schema_eventUT, wiz::load_data::UserType* schemaUT,
-		wiz::load_data::UserType* clautextUT, int depth, bool& log_on, bool is_optional = false)
-	{
-		bool use_it_order_on = false;
-		bool use_ut_order_on = false;
-
-		Option::Order_ order = Option::Order_::OFF;
-		long long ct_itCount = 0; // for clautextUT?
-		long long ct_utCount = 0; // for clautextUT?
-		long long itCount = 0;
-		long long utCount = 0;
-
-		long multiple_flag = 0; // 0 : no multiple, 1 : multiple
-
-		// for ORDER_::OFF
-		std::vector<bool> validVisit(schemaUT->GetIListSize(), false);
-		std::vector<Option> varOptionVisit(schemaUT->GetIListSize()); // remove?
-		std::vector<bool> mark(clautextUT->GetItemListSize(), false); // ct_it
-		std::vector<bool> mark2(clautextUT->GetUserTypeListSize(), false); // ct_ut
-
-		std::set<std::pair<std::string, std::string>> check_id;
-
-		int multiple_run = 0; // 1 - it(itemtype) run, 2 - ut(usertype) run.
-
-		long long count_ct_it = 0;
-		long long count_ct_ut = 0;
-
-
-		for (long long i = 0; i < schemaUT->GetIListSize(); ++i)
-		{
-			if (depth == 0) { // chk - clau`s depth >= 1 ( { ~~ } )
-				check_total_id.clear();
-			}
-			const bool chk_ct_it = ct_itCount < clautextUT->GetItemListSize();
-			const bool chk_ct_ut = ct_utCount < clautextUT->GetUserTypeListSize();
-
-			bool check_pass = false;
-
-			if (schemaUT->IsItemList(i)) {
-				if (schemaUT->GetItemListSize() > 0 && schemaUT->GetItemList(itCount).ToString() == "%order_on") {
-					order = Option::Order_::ON;
-					validVisit[i] = true;
-					itCount++;
-
-					if (use_it_order_on) {
-						ct_itCount += count_ct_it;
-						count_ct_it = 0;
-					}
-					if (use_ut_order_on) {
-						ct_utCount += count_ct_ut;
-						count_ct_ut = 0;
-					}
-
-					use_it_order_on = false;
-					use_ut_order_on = false;
-
-					continue;
-				}
-				else if (schemaUT->GetItemList(itCount).ToString() == "%order_off") {
-					order = Option::Order_::OFF;
-
-					if (use_it_order_on) {
-						ct_itCount += count_ct_it;
-						count_ct_it = 0;
-					}
-					if (use_ut_order_on) {
-						ct_utCount += count_ct_ut;
-						count_ct_ut = 0;
-					}
-
-
-					use_it_order_on = false;
-					use_ut_order_on = false;
-
-					validVisit[i] = true;
-					itCount++;
-					continue;
-				}
-				else if (schemaUT->GetItemList(itCount).ToString() == "%multiple_on") {
-				//	if (order == Option::Order_::OFF) {
-				//		std::cout << "to do %multple_on, need to %order_on!" << ENTER;
-				//		throw "ERROR1";
-				//	}
-					multiple_flag = 1;
-					validVisit[i] = true;
-					itCount++;
-					continue;
-				}
-				else if (schemaUT->GetItemList(itCount).ToString() == "%multiple_off") {
-					//if (order == Option::Order_::OFF) {
-					//	std::cout << "to do %multple_off, need to %order_on!" << ENTER;
-					//	throw "ERROR2";
-					//}
-					multiple_flag = 0;
-					multiple_run = 0;
-					validVisit[i] = true;
-					itCount++;
-					continue;
-				}
-				else if (schemaUT->GetItemList(itCount).ToString() == "%log_on") {
-					log_on = true;
-					validVisit[i] = true;
-					itCount++;
-					continue;
-				}
-				else if (schemaUT->GetItemList(itCount).ToString() == "%log_off") {
-					log_on = false;
-					validVisit[i] = true;
-					itCount++;
-					continue;
-				}
-
-
-				// log
-				if (log_on) {
-					std::cout << ENTER << "<itemtype> ";
-					std::cout << "[depth] : " << depth << " ";
-					std::cout << "[~th] : " << itCount << " ";
-					std::cout << "[schema] : " << schemaUT->GetItemList(itCount).ToString() << " ";
-				}
-
-
-
-				// off -> no order? : slow??
-				if (order == Option::Order_::OFF) {
-					bool pass = false;
-					bool use_onemore = false;
-					std::tuple<bool, Option, Option> temp;
-
-					int check_justone = 0;
-
-					int count_iter = 0;
-
-					// schemaUT?
-					for (long long j = 0; j < clautextUT->GetItemListSize(); ++j) {
-						if (count_iter > 0 && 0 == multiple_flag) {
-							break;
-						}
-
-						if (log_on) {
-							std::cout << ENTER << "\t" << "[clau ~th] : " << j << " "
-								<< "[clautext] : " << clautextUT->GetItemList(j).ToString() << ENTER;
-						}
-
-						if (mark[j] == true) {
-							continue;
-						}
-
-						temp = _Check(schema_eventUT, schemaUT->GetItemList(itCount), clautextUT->GetItemList(j), wiz::load_data::LoadData::GetRealDir(clautextUT->GetItemList(j).GetName().ToString(), clautextUT, &builder));
-
-
-						if (mark[j] == false &&
-							std::get<0>(temp)
-							) {
-							count_iter++;
-
-							// visit vector? chk?
-							validVisit[i] = true;
-							varOptionVisit[i] = std::get<1>(temp);
-							mark[j] = true;
-
-							pass = true;
-
-							// check id, total id! 
-							if (std::get<1>(temp).id == Option::Id_::ID) {
-								const std::string key_1 = clautextUT->GetItemList(j).GetName().ToString();
-								const std::string key_2 = "it_name";
-								const std::pair<std::string, std::string> key(key_1, key_2);
-
-								if (check_id.find(key) == check_id.end()) {
-									check_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid - ID1" << ENTER;
-									return false;
-								}
-							}
-							else if (std::get<1>(temp).id == Option::Id_::TOTAL_ID) {
-								if (0 == depth) {
-									std::cout << "ERROR schema is not valid1" << ENTER;
-									return false;
-								}
-								const std::string key_1 = clautextUT->GetItemList(j).GetName().ToString();
-								const std::string key_2 = wiz::load_data::LoadData::GetRealDir(schemaUT->GetName().ToString(), schemaUT, &builder);
-								const std::string key_3 = "it_name";
-
-								std::tuple<std::string, std::string, std::string> key(key_1, key_2, key_3);
-
-								if (check_total_id.find(key) == check_total_id.end()) {
-									check_total_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid _ ID2" << ENTER;
-									return false;
-								}
-							}
-							if (std::get<2>(temp).id == Option::Id_::ID) {
-								const std::string key_1 = clautextUT->GetItemList(j).Get(0).ToString();
-								const std::string key_2 = "it_value";
-								const std::pair<std::string, std::string> key(key_1, key_2);
-
-								if (check_id.find(key) == check_id.end()) {
-									check_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid - ID3" << ENTER;
-									return false;
-								}
-							}
-							else if (std::get<2>(temp).id == Option::Id_::TOTAL_ID) {
-								if (0 == depth) {
-									std::cout << "ERROR schema is not valid2" << ENTER;
-									return false;
-								}
-
-								const std::string key_1 = clautextUT->GetItemList(j).Get(0).ToString();
-								const std::string key_2 = wiz::load_data::LoadData::GetRealDir(schemaUT->GetName().ToString(), schemaUT, &builder);
-								const std::string key_3 = "it_value";
-
-								std::tuple<std::string, std::string, std::string> key(key_1, key_2, key_3);
-
-								if (check_total_id.find(key) == check_total_id.end()) {
-									check_total_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid _ ID4" << ENTER;
-									return false;
-								}
-							}
-
-							// check justone, (onemore)
-							if (std::get<1>(temp).onemore == Option::OneMore_::JUSTONE) { // justone -> only for name! , not for value!
-								if (check_justone > 0) {
-									std::cout << "clauText is not valid, justone is set, but not justone. 1" << ENTER;
-									return false;
-								}
-								else {
-									check_justone++;
-									count_ct_it++;
-									use_it_order_on = true;
-								}
-							}
-							else {
-								use_it_order_on = true;
-								count_ct_it++; //ct_itCount++;
-								use_onemore = true;
-							}
-						}
-					}
-
-					if (false == pass) {
-						Option var_option = OptionFrom(schemaUT->GetItemList(itCount).GetName().ToString());
-
-						if (var_option.required == Option::Required_::OPTIONAL_) { // optional -> only for name
-							validVisit[i] = true;
-						}
-						else {
-							std::cout << "clauText is not valid4" << ENTER;
-							return false;
-						}
-					}
-				}
-				else if (order == Option::Order_::ON) {
-					if (!chk_ct_it) {
-						std::cout << "chk_ct_it is false" << ENTER;
-
-						if (1 == multiple_run) {
-							itCount++;
-							continue;
-						}
-						else {
-							break;
-						}
-					}
-
-					if (log_on) {
-						std::cout << "[clau ~th] : " << ct_itCount << " "
-							<< "[clautext] : " << clautextUT->GetItemList(ct_itCount).ToString() << ENTER;
-					}
-
-					check_pass = true;
-
-					int check_justone = 0;
-
-					std::tuple<bool, Option, Option> temp;
-					temp = _Check(schema_eventUT, schemaUT->GetItemList(itCount), clautextUT->GetItemList(ct_itCount), wiz::load_data::LoadData::GetRealDir(clautextUT->GetItemList(ct_itCount).GetName().ToString(), clautextUT, &builder));
-
-					if (mark[ct_itCount]) {
-						std::cout << "mark " << ENTER;
-						return false;
-					}
-					else if (std::get<0>(temp)) {
-						validVisit[i] = true;
-
-						// check id, total id!
-						if (std::get<1>(temp).id == Option::Id_::ID) {
-							const std::string key_1 = clautextUT->GetItemList(ct_itCount).GetName().ToString();
-							const std::string key_2 = "it_name";
-							const std::pair<std::string, std::string> key(key_1, key_2);
-
-							if (check_id.find(key) == check_id.end()) {
-								check_id.insert(key);
-							}
-							else {
-								std::cout << "clauText is not valid - ID5" << ENTER;
-								return false;
-							}
-						}
-						else if (std::get<1>(temp).id == Option::Id_::TOTAL_ID) {
-							if (0 == depth) {
-								std::cout << "ERROR schema is not valid3" << ENTER;
-								return false;
-							}
-
-							const std::string key_1 = clautextUT->GetItemList(ct_itCount).GetName().ToString();
-							const std::string key_2 = wiz::load_data::LoadData::GetRealDir(schemaUT->GetName().ToString(), schemaUT, &builder);
-							const std::string key_3 = "it_name";
-
-							std::tuple<std::string, std::string, std::string> key(key_1, key_2, key_3);
-
-							if (check_total_id.find(key) == check_total_id.end()) {
-								check_total_id.insert(key);
-							}
-							else {
-								std::cout << "clauText is not valid _ ID6" << ENTER;
-								return false;
-							}
-						}
-
-						if (std::get<2>(temp).id == Option::Id_::ID) {
-							const std::string key_1 = clautextUT->GetItemList(ct_itCount).Get(0).ToString();
-							const std::string key_2 = "it_value";
-							const std::pair<std::string, std::string> key(key_1, key_2);
-
-							if (check_id.find(key) == check_id.end()) {
-								check_id.insert(key);
-							}
-							else {
-								std::cout << "clauText is not valid - ID7" << ENTER;
-								return false;
-							}
-						}
-						else if (std::get<2>(temp).id == Option::Id_::TOTAL_ID) {
-							if (0 == depth) {
-								std::cout << "ERROR schema is not valid4" << ENTER; // use id!
-								return false;
-							}
-
-							const std::string key_1 = clautextUT->GetItemList(ct_itCount).Get(0).ToString();
-							const std::string key_2 = wiz::load_data::LoadData::GetRealDir(schemaUT->GetName().ToString(), schemaUT, &builder);
-							const std::string key_3 = "it_value";
-
-							std::tuple<std::string, std::string, std::string> key(key_1, key_2, key_3);
-
-							if (check_total_id.find(key) == check_total_id.end()) {
-								check_total_id.insert(key);
-							}
-							else {
-								std::cout << "clauText is not valid _ ID8" << ENTER;
-								return false;
-							}
-						}
-
-						// check justone, (onemore)
-						if (std::get<1>(temp).onemore == Option::OneMore_::JUSTONE) { // justone -> only for name! , not for value!
-							//
-						}
-						else if (std::get<1>(temp).onemore == Option::OneMore_::ONEMORE) {
-							std::cout << "clauText is not valid, in order_on no onemore! 1" << ENTER;
-							return false;
-						}
-						else {
-							//
-						}
-					}
-					else if (std::get<1>(temp).required == Option::Required_::OPTIONAL_) {
-						if (i == schemaUT->GetIListSize() - 1) {
-							throw "clauText is not valid - error1 ";
-						}
-
-						check_pass = false;
-						validVisit[i] = true;
-
-						if (1 == multiple_flag && itCount < schemaUT->GetItemListSize() - 1 &&
-							schemaUT->GetItemList(itCount + 1).ToString() == "%multiple_off") {
-							multiple_flag = 0;
-							multiple_run = 0;
-						}
-					}
-					else if (1 == multiple_flag && itCount < schemaUT->GetItemListSize() - 1 &&
-						schemaUT->GetItemList(itCount + 1).ToString() == "%multiple_off") {
-						multiple_flag = 0;
-						multiple_run = 0;
-						check_pass = false;
-					}
-					else {
-						std::cout << "clauText is not valid6" << ENTER;
-						return false;
-					}
-
-					if (1 == multiple_flag) {
-						multiple_run = 1;
-						itCount--; i--;
-					}
-				}
-
-				if (Option::Order_::ON == order && check_pass) {
-					ct_itCount++;
-				}
-				itCount++;
-			}
-			else { // usertype
-				// log
-				if (log_on) {
-					std::cout << ENTER << "<usertype> ";
-					std::cout << "[depth] : " << depth << " ";
-					std::cout << "[~th] : " << utCount << " ";
-					std::cout << "[schema] : " << schemaUT->GetUserTypeList(utCount)->GetName().ToString() << " ";
-				}
-
-				// off -> no order? : slow??
-				if (order == Option::Order_::OFF) {
-					bool pass = false;
-					bool use_onemore = false;
-					std::tuple<bool, Option> temp3;
-					int count_iter = 0;
-					int check_justone = 0;
-
-					for (long long j = 0; j < clautextUT->GetUserTypeListSize(); ++j) {
-						if (count_iter > 0 && 0 == multiple_flag) {
-							break;
-						}
-						
-						if (mark2[j]) {
-							continue;
-						}
-
-						if (log_on) {
-							std::cout << ENTER << "\t" << "[clau ~th] : " << j << " "
-								<< "[clautext] : " << clautextUT->GetUserTypeList(j)->GetName().ToString() << ENTER;
-						}
-
-						temp3 = _Check(schema_eventUT, schemaUT->GetUserTypeList(utCount), clautextUT->GetUserTypeList(j), wiz::load_data::LoadData::GetRealDir(clautextUT->GetUserTypeList(j)->GetName().ToString(), clautextUT->GetUserTypeList(j), &builder));
-
-						if (mark2[j] == false && (std::get<0>(temp3) || std::get<1>(temp3).required == Option::Required_::OPTIONAL_)) {
-							count_iter++;
-
-							if (log_on) {
-								std::cout << " { " << ENTER;
-							}
-							if (std::get<1>(temp3).empty_ut == Option::EmptyUT_::ON && 0 == clautextUT->GetUserTypeList(j)->GetIListSize()) {
-								validVisit[i] = true;
-							}
-							else if (Check(schema_eventUT, schemaUT->GetUserTypeList(utCount), clautextUT->GetUserTypeList(j), depth + 1, log_on, is_optional || std::get<1>(temp3).required == Option::Required_::OPTIONAL_)) {
-								//
-							}
-							else if (std::get<1>(temp3).required == Option::Required_::OPTIONAL_) {
-								validVisit[i] = true;
-							}
-							else {
-								std::cout << "clauText is not valid8" << ENTER;
-								return false;
-							}
-
-							if (log_on) {
-								std::cout << " } " << ENTER;
-							}
-
-							// visit vector? chk?
-							validVisit[i] = true;
-							varOptionVisit[i] = std::get<1>(temp3);
-							mark2[j] = true;
-
-							pass = true;
-
-							// check id, total id!
-							if (std::get<1>(temp3).id == Option::Id_::ID) {
-								const std::string key_1 = clautextUT->GetUserTypeList(j)->GetName().ToString();
-								const std::string key_2 = "ut_name";
-								const std::pair<std::string, std::string> key(key_1, key_2);
-
-								if (check_id.find(key) == check_id.end()) {
-									check_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid - ID9" << ENTER;
-									return false;
-								}
-							}
-							else if (std::get<1>(temp3).id == Option::Id_::TOTAL_ID) {
-								if (0 == depth) {
-									std::cout << "ERROR schema is not valid5" << ENTER;
-									return false;
-								}
-
-								const std::string key_1 = clautextUT->GetUserTypeList(j)->GetName().ToString();
-								const std::string key_2 = wiz::load_data::LoadData::GetRealDir(schemaUT->GetName().ToString(), schemaUT, &builder);
-								const std::string key_3 = "ut_name";
-
-								std::tuple<std::string, std::string, std::string> key(key_1, key_2, key_3);
-
-								if (check_total_id.find(key) == check_total_id.end()) {
-									check_total_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid _ ID10" << ENTER;
-									return false;
-								}
-							}
-
-							// check justone, (onemore)
-							if (std::get<1>(temp3).onemore == Option::OneMore_::JUSTONE) { // justone -> only for name! , not for value!
-								if (check_justone > 0) {
-
-									std::cout << "clauText is not valid, justone is set, but not justone. 3" << ENTER;
-									return false;
-								}
-								else {
-									check_justone++;
-									use_ut_order_on = true;
-									count_ct_ut++; //ct_utCount++;
-									use_onemore = true;
-								}
-							}
-							else {
-								use_ut_order_on = true;
-								count_ct_ut++; //ct_utCount++;
-							}
-						}
-					}
-					if (false == pass) {
-						Option var_option = OptionFrom(schemaUT->GetUserTypeList(utCount)->GetName().ToString());
-
-						if (var_option.required == Option::Required_::OPTIONAL_) {
-							validVisit[i] = true;
-							utCount++;
-							break;
-						}
-						else {
-							std::cout << "clauText is not valid9 " << schemaUT->GetUserTypeList(utCount)->GetName().ToString() << ENTER;
-							return false;
-						}
-					}
-				}
-				else if (order == Option::Order_::ON) {
-					if (!chk_ct_ut)
-					{
-						std::cout << "chk_ct_ut is false" << ENTER;
-
-						std::tuple<bool, Option> temp = _Check(schema_eventUT,
-							schemaUT->GetUserTypeList(utCount), nullptr, "");
-
-						is_optional = std::get<1>(temp).required == Option::Required_::OPTIONAL_;
-
-
-						if (2 == multiple_run) {
-							utCount++;
-							continue;
-						}
-						else {
-							return is_optional; //... optional..... - ToDo : removal??
-						}
-					}
-
-					if (log_on) {
-						std::cout << "[clau ~th] : " << ct_utCount << " "
-							<< "[clautext] : " << clautextUT->GetUserTypeList(ct_utCount)->GetName().ToString() << ENTER;
-					}
-
-					check_pass = true;
-					int check_justone = 0;
-
-
-					std::tuple<bool, Option> temp = _Check(schema_eventUT,
-						schemaUT->GetUserTypeList(utCount), clautextUT->GetUserTypeList(ct_utCount),
-						wiz::load_data::LoadData::GetRealDir(clautextUT->GetUserTypeList(ct_utCount)->GetName().ToString(), clautextUT->GetUserTypeList(ct_utCount), &builder)
-					);
-
-					if (mark2[ct_utCount]) {
-						std::cout << "mark2" << ENTER;
-						return false;
-					}
-					else if (std::get<0>(temp)) {
-						if (log_on) {
-							std::cout << " { " << ENTER;
-						}
-
-
-						if (std::get<1>(temp).empty_ut == Option::EmptyUT_::ON && 0 == clautextUT->GetUserTypeList(ct_utCount)->GetIListSize()) {
-							check_pass = true;
-							validVisit[i] = true;
-						}
-						else if (Check(schema_eventUT, schemaUT->GetUserTypeList(utCount), clautextUT->GetUserTypeList(ct_utCount), depth + 1, log_on, is_optional || std::get<1>(temp).required == Option::Required_::OPTIONAL_)) {
-							validVisit[i] = true;
-
-							// check id, total id!
-							if (std::get<1>(temp).id == Option::Id_::ID) {
-								const std::string key_1 = clautextUT->GetUserTypeList(ct_utCount)->GetName().ToString();
-								const std::string key_2 = "ut_name";
-								const std::pair<std::string, std::string> key(key_1, key_2);
-
-								if (check_id.find(key) == check_id.end()) {
-									check_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid - ID11" << ENTER;
-									return false;
-								}
-							}
-							else if (std::get<1>(temp).id == Option::Id_::TOTAL_ID) {
-								if (0 == depth) {
-									std::cout << "ERROR schema is not valid6" << ENTER;
-									return false;
-								}
-
-								const std::string key_1 = clautextUT->GetUserTypeList(ct_utCount)->GetName().ToString();
-								const std::string key_2 = wiz::load_data::LoadData::GetRealDir(schemaUT->GetName().ToString(), schemaUT, &builder);
-								const std::string key_3 = "ut_name";
-
-								std::tuple<std::string, std::string, std::string> key(key_1, key_2, key_3);
-
-								if (check_total_id.find(key) == check_total_id.end()) {
-									check_total_id.insert(key);
-								}
-								else {
-									std::cout << "clauText is not valid _ ID12" << ENTER;
-									return false;
-								}
-							}
-
-							// check justone, (onemore)
-							if (std::get<1>(temp).onemore == Option::OneMore_::JUSTONE) { // justone -> only for name! , not for value!
-								//
-							}
-							else if (std::get<1>(temp).onemore == Option::OneMore_::ONEMORE) {
-								std::cout << "clauText is not valid, in order_on no onemore! 2" << ENTER;
-								return false;
-							}
-							else {
-								//
-							}
-						}
-						else if (std::get<1>(temp).required == Option::Required_::OPTIONAL_) {
-							if (i == schemaUT->GetIListSize() - 1) {
-								throw "clauText is not valid - error3 ";
-							}
-							check_pass = false;
-							validVisit[i] = true;
-						}
-						else {
-							std::cout << "clauText is not valid11" << ENTER;
-							return false;
-						}
-						if (log_on) {
-							std::cout << " } " << ENTER;
-						}
-					}
-					else if (std::get<1>(temp).required == Option::Required_::OPTIONAL_) {
-						if (i == schemaUT->GetIListSize() - 1) {
-							throw "clauText is not valid - error4 ";
-						}
-
-						check_pass = false;
-						validVisit[i] = true;
-
-						if (1 == multiple_flag &&
-							schemaUT->GetItemList(itCount).ToString() == "%multiple_off") {
-							multiple_flag = 0;
-							multiple_run = 0;
-							//ct_utCount--;
-						}
-					}
-					else if (1 == multiple_flag &&
-						schemaUT->GetItemList(itCount).ToString() == "%multiple_off") {
-						multiple_flag = 0;
-						multiple_run = 0;
-						check_pass = false;
-					}
-					else {
-						std::cout << "clauText is not valid12" << ENTER;
-						return false;
-					}
-
-					if (1 == multiple_flag) {
-						multiple_run = 2;
-						utCount--;
-						i--;
-					}
-				}
-				if (Option::Order_::ON == order && check_pass) {
-					ct_utCount++;
-				}
-				utCount++;
-			}
-		}
-
-
-		if (use_it_order_on) { // order_off?
-			ct_itCount += count_ct_it;
-		}
-		if (use_ut_order_on) {
-			ct_utCount += count_ct_ut;
-		}
-
-
-		if (multiple_flag && 2 == multiple_run) {
-			//utCount++;
-		}
-		else if (multiple_flag && 1 == multiple_run) {
-			//itCount++;
-		}
-		else if (multiple_flag) {
-			std::cout << "multiple_flag is wrong.. " << ENTER;
+		if (count <= 0) {
 			return false;
 		}
 
-		if (ct_itCount != clautextUT->GetItemListSize()) {
-			std::cout << "clauText is not valid13 : " << ct_itCount << " " << clautextUT->GetItemListSize() << ENTER;
-			return false;
-		}
-		if (ct_utCount != clautextUT->GetUserTypeListSize()) {
-			std::cout << "clauText is not valid14 : " << ct_utCount << " " << clautextUT->GetUserTypeListSize() << ENTER;
-			return false;
-		}
+		bool success = false;
+		// chk regex
+		if (!option.regex.empty()) {
+			std::regex rgx(option.regex);
 
-		if (itCount != schemaUT->GetItemListSize()) {
-			std::cout << "clauText is not valid15 : " << itCount << ENTER;
-			return false;
-		}
-
-		if (utCount != schemaUT->GetUserTypeListSize()) {
-			std::cout << "clauText is not valid16 : " << utCount << " " << schemaUT->GetUserTypeListSize() << ENTER;
-			return false;
-		}
-
-		for (long long i = 0; i < validVisit.size(); ++i) {
-			if (false == validVisit[i]) {
-				std::cout << "clauText is not valid17" << ENTER;
+			if (std::regex_match(str, rgx)) {
+				success = true;
+			}
+			if (!success) {
 				return false;
 			}
 		}
@@ -1158,218 +462,720 @@ namespace Lint {
 		return true;
 	}
 
-	inline bool _Validate(const wiz::load_data::UserType & schemaFileUT)
-	{
-		// 1. $로 시작하는 것들을 따로 분리해서 별도의 UserType에 저장한다.
-			// 1-1. $Event -> 따로 뽑아낸 다음 Event로 rename?
-			// 1-2. $변수들 -> 따로 뽑아낸 다음 변수들로 rename?
-		// 2. $로 시작하지는 않는 것들은 data check 내용이다?
-			// 2-1. %로 시작하는 것을 찾아서 각각 수행한다. 
-		wiz::load_data::UserType* clautextUT;
-		wiz::load_data::UserType schema_eventUT;
-		wiz::load_data::UserType schemaUT;
-		int itemCount = 0;
-		int utCount = 0;
 
-		for (int i = 0; i < schemaFileUT.GetIListSize(); ++i) {
-			if (schemaFileUT.IsItemList(i)) { // itemtype
-				const std::string name = wiz::ToString(schemaFileUT.GetItemList(itemCount).GetName());
-				if (name.size() > 1 && name[0] == '$') {
-					schema_eventUT.AddItem(name.substr(1), schemaFileUT.GetItemList(itemCount).Get(0));
-				}
-				else {
-					schemaUT.AddItem(name, schemaFileUT.GetItemList(itemCount).Get(0));
-				}
-				itemCount++;
-			}
-			else { // usertype
-				const std::string name = wiz::ToString(schemaFileUT.GetUserTypeList(utCount)->GetName());
-				wiz::load_data::UserType temp = *schemaFileUT.GetUserTypeList(utCount);
+	class ValidationInfo {
+	public:
+		const wiz::load_data::UserType* nowTextUT;
+		const wiz::load_data::UserType* nowSchemaUT;
 
-				if (name.size() > 1 && name[0] == '$') {
-					temp.SetName(wiz::ToString(temp.GetName()).substr(1));
-					schema_eventUT.AddUserTypeItem(std::move(temp));
-				}
-				else {
-					schemaUT.AddUserTypeItem(std::move(temp));
-				}
-				utCount++;
-			}
-		}
+		size_t index;
+		size_t itCount;
+		size_t utCount;
 
-		// __init__ first init.
-		std::string start_name;
+		std::vector<int> visited; // for nowTextUT. // for it
+		std::vector<int> visited2; // for ut
+
+		bool isOrdered = false; // object -> false?, array -> true?, and mixed?
+
+	public:
+		ValidationInfo(const wiz::load_data::UserType* nowTextUT, const wiz::load_data::UserType* nowSchemaUT)
+			: nowTextUT(nowTextUT), nowSchemaUT(nowSchemaUT), index(0), itCount(0), utCount(0)
 		{
-			wiz::ClauText clauText;
-			start_name = clauText.excute_module("Main = { $call = { id = __init__ } }", &schema_eventUT, wiz::ExcuteData(), opt, 1); // 0 (remove events) -> 1 (revoke events?)
 
-			if (start_name.empty()) {
-				std::cout << "__init__ must return data`s start? folder?" << ENTER;
-				exit(-1);
+		}
+	};
+
+
+	bool Validate(const wiz::load_data::UserType* textUT, const wiz::load_data::UserType* schemaUT, wiz::load_data::UserType* eventUT, 
+			const std::map<std::string, wiz::load_data::UserType*>& styleMap, const std::map<std::string, std::set<std::string>>& enumMap) {
+		
+		std::map<std::string, std::set<std::string>> ids;
+		std::map<std::string, std::string> needMap;
+
+		bool print_off = true;
+		std::queue<ValidationInfo> que;
+
+		que.push(ValidationInfo(textUT, schemaUT));
+		// visited..
+		que.front().visited = std::vector<int>(textUT->GetItemListSize(), 0);
+		que.front().visited2 = std::vector<int>(textUT->GetUserTypeListSize(), 0);
+
+
+		while (!que.empty()) {
+			auto iter = que.front();
+			que.pop();
+
+			// schemaUT..
+			int fail = 0;
+
+			size_t i = iter.index;
+			if (i < iter.nowSchemaUT->GetIListSize()) {
+				if (iter.nowSchemaUT->IsItemList(i)) {
+					if (iter.nowSchemaUT->GetItemList(iter.itCount).GetName() == "$id_clear"sv) {
+						ids.erase(iter.nowSchemaUT->GetItemList(iter.itCount).Get());
+						iter.index++;
+						iter.itCount++;
+
+						que.push(iter);
+						continue;
+					}
+					else if (iter.nowSchemaUT->GetItemList(iter.itCount).GetName() == "$print"sv) {
+						if (iter.nowSchemaUT->GetItemList(iter.itCount).Get() == "on") {
+							print_off = false;
+						}
+						else {
+							print_off = true;
+						}
+
+						iter.index++;
+						iter.itCount++;
+
+						que.push(iter);
+						continue;
+					}
+
+					// key = val or val
+					Option opt_key = OptionFrom(iter.nowSchemaUT->GetItemList(iter.itCount).GetName(), eventUT, styleMap);
+					Option opt_data = OptionFrom(iter.nowSchemaUT->GetItemList(iter.itCount).Get(), eventUT, styleMap);
+
+					std::vector<long long> text_idx;
+
+					if (wiz::String::startsWith(opt_key.prefix, "$"sv)) {
+						if (opt_key.prefix == "$"sv) {
+							for (int k = 0; k < iter.nowTextUT->GetItemListSize(); ++k) {
+								text_idx.push_back(k);
+							}
+						}
+						else {
+							if (opt_key.prefix == "$_"sv) {
+								text_idx = iter.nowTextUT->GetItemIdx("");
+							}
+							else {
+								text_idx = iter.nowTextUT->GetItemIdx(opt_key.prefix.substr(1));
+							}
+						}
+					}
+					else {
+						text_idx = iter.nowTextUT->GetItemIdx(opt_key.prefix);
+					}
+
+
+					// chk optional, (required)
+					if (text_idx.empty() && opt_key.required == Option::Required_::OPTIONAL_) {
+						iter.index++;
+						iter.itCount++;
+
+						que.push(iter);
+
+						continue;
+					}
+					else if (text_idx.empty()) {
+						if (!print_off) {
+							wiz::Out << "it is not optional..\n" << opt_key.prefix << "\n";
+						}
+
+						return false;
+					}
+
+					// DoA - chk minimum, maximum, type, regex,
+					for (int j = 0; j < text_idx.size(); ++j) {
+						int success = 0;
+						if (OptionDoA(opt_key, iter.nowTextUT->GetItemList(text_idx[j]).GetName())) {
+							success++;
+						}
+						else {
+							if (!print_off) {
+								wiz::Out << "key is not valid\n" << opt_key.prefix << "\n";
+							}
+						}
+
+						if (OptionDoA(opt_data, iter.nowTextUT->GetItemList(text_idx[j]).Get())) {
+							success++;
+						}
+						else {
+							if (!print_off) {
+								wiz::Out << "data is not valid\n";
+							}
+						}
+
+						if (success < 2) {
+							return false;
+						}
+					}
+					
+					// chk enum.
+					{
+						if (!opt_key.enum_ids.empty()) {
+							std::vector<int> chk(text_idx.size(), 0);
+
+							for (int k = 0; k < opt_key.enum_ids.size(); ++k) {
+								auto ids = enumMap.find(opt_key.enum_ids[k]);
+								
+								for (int j = 0; j < text_idx.size(); ++j) {
+									if (ids->second.end() != ids->second.find(iter.nowTextUT->GetItemList(text_idx[j]).GetName())) {
+										chk[j]++;
+									}
+								}
+							}
+
+							for (int j = 0; j < chk.size(); ++j) {
+								if (0 == chk[j]) {
+									if (!print_off) {
+										wiz::Out << "key is not valid enum.\n";
+									}
+									return false;
+								}
+							}
+						}
+
+						if (!opt_data.enum_ids.empty()) {
+							std::vector<int> chk(text_idx.size(), 0);
+
+							for (int k = 0; k < opt_data.enum_ids.size(); ++k) {
+								auto ids = enumMap.find(opt_data.enum_ids[k]);
+
+								for (int j = 0; j < text_idx.size(); ++j) {
+									if (ids->second.end() != ids->second.find(iter.nowTextUT->GetItemList(text_idx[j]).Get())) {
+										chk[j]++;
+									}
+								}
+							}
+
+							for (int j = 0; j < chk.size(); ++j) {
+								if (0 == chk[j]) {
+									if (!print_off) {
+										wiz::Out << "data is not valid enum.\n";
+									}
+									return false;
+								}
+							}
+						}
+					}
+
+					// id
+					{
+						if (!opt_key.ids.empty()) {
+							for (int k = 0; k < opt_key.ids.size(); ++k) {
+								for (int j = 0; j < text_idx.size(); ++j) {
+									if (ids.find(opt_key.ids[k]) == ids.end()) {
+										ids.insert(std::make_pair(opt_key.ids[k], std::set<std::string>()));
+									}
+									auto x = ids.find(opt_key.ids[k]);
+									if (x->second.end() == x->second.find(iter.nowTextUT->GetItemList(text_idx[j]).GetName())) {
+										x->second.insert(iter.nowTextUT->GetItemList(text_idx[j]).GetName());
+									}
+									else {
+										if (!print_off) {
+											wiz::Out << "id is not valid.\n";
+										}
+										return false;
+									}
+								}
+							}
+						}
+						if (!opt_data.ids.empty()) {
+							for (int k = 0; k < opt_data.ids.size(); ++k) {
+								for (int j = 0; j < text_idx.size(); ++j) {
+									if (ids.find(opt_data.ids[k]) == ids.end()) {
+										ids.insert(std::make_pair(opt_data.ids[k], std::set<std::string>()));
+									}
+									auto x = ids.find(opt_data.ids[k]);
+									if (x->second.end() == x->second.find(iter.nowTextUT->GetItemList(text_idx[j]).Get())) {
+										x->second.insert(iter.nowTextUT->GetItemList(text_idx[j]).Get());
+									}
+									else {
+										if (!print_off) {
+											wiz::Out << "id is not valid.\n";
+										}
+										return false;
+									}
+								}
+							}
+
+						}
+					}
+
+					// need?					
+					for (size_t j = 0; j < opt_key.needs.size(); ++j) {
+						std::string old = iter.nowSchemaUT->GetItemList(iter.itCount).GetName();
+						old = old.substr(1, old.size() - 2);
+
+						if (auto _x = needMap.find(opt_key.needs[j]); _x != needMap.end()) {
+							while (_x != needMap.end()) {
+								if (_x->second == old) {
+									if (!print_off) {
+										wiz::Out << "need error\n";
+									}
+									return false;
+								}
+								_x = needMap.find(_x->second);
+							}
+						}
+
+						needMap.insert({ old, opt_key.needs[j] });
+
+
+						if (iter.nowSchemaUT->GetParent() != nullptr) {
+							if ((!iter.nowSchemaUT->GetItem("\"" + opt_key.needs[j] + "\"").empty()) ||
+								(!iter.nowSchemaUT->GetUserTypeItem("\"" + opt_key.needs[j] + "\"").empty())) {
+								//
+							}
+							else {
+								if (!print_off) {
+									wiz::Out << "err) need " << ("\"" + opt_key.needs[j] + "\"") << "\n";
+								}
+								return false;
+							}
+						}
+					}
+
+					// Event..
+					{
+						for (int t = 0; t < text_idx.size(); ++t) {
+							for (auto& x : opt_key.event_ids) {
+								auto y = iter.nowTextUT->GetItemList(text_idx[t]);
+								wiz::load_data::UserType* mainUT = eventUT;
+								std::vector<std::string> vec = wiz::tokenize(x, '@');
+								std::string event_name = vec[0];
+								std::string argument;
+								if (vec.size() > 1) {
+									argument = vec[1].substr(1, vec[1].size() - 2);
+									argument = wiz::load_data::LoadData::ToBool4(nullptr, *mainUT, argument, wiz::ExecuteData()).ToString();
+								}
+
+								// for var // chk no start with __, no end with __ ?
+
+								std::string func = "Event = { id = __";
+
+								func += event_name;
+								func += "__ $call = { id = ";
+								func += event_name;
+								func += " name = ";
+								func += y.GetName().empty()? "$NO_NAME" : y.GetName(); // todo - empty ó��.
+								func += " value = ";
+								func += y.Get(0);
+								func += " is_usertype = FALSE ";
+
+								func += " select = NAME ";
+								func += " input = ";
+								func += y.GetName().empty() ? "$NO_NAME" : y.GetName();
+								func += " ";
+								func += argument;
+								func += " } } ";
+
+								wiz::load_data::LoadData::AddData(*mainUT, "/./",
+									func,
+									wiz::ExecuteData());
+								wiz::Option option;
+								if ("TRUE"sv == clauText.execute_module("Main = { $call = { id = __" + event_name + "__ } }", mainUT, wiz::ExecuteData(), option, 1)) {
+									mainUT->RemoveUserTypeList(mainUT->GetUserTypeListSize() - 1);
+								}
+								else {
+									mainUT->RemoveUserTypeList(mainUT->GetUserTypeListSize() - 1);
+
+									std::cout << "clauText is not valid1" << ENTER;
+									return false;
+								}
+							}
+							for (auto& x : opt_data.event_ids) {
+								auto y = iter.nowTextUT->GetItemList(text_idx[t]);
+
+								wiz::load_data::UserType* mainUT = eventUT;
+								std::vector<std::string> vec = wiz::tokenize(x, '@');
+								std::string event_name = vec[0];
+								std::string argument;
+								if (vec.size() > 1) {
+									argument = vec[1].substr(1, vec[1].size() - 2);
+									argument = wiz::load_data::LoadData::ToBool4(nullptr, *mainUT, argument, wiz::ExecuteData()).ToString();
+								}
+
+								// for val
+
+								std::string func = "Event = { id = __";
+
+								func += event_name;
+								func += "__ $call = { id = ";
+								func += event_name;
+								func += " name = ";
+								func += y.GetName().empty() ? "$NO_NAME" : y.GetName();
+								func += " value = ";
+								func += y.Get(0);
+								func += " is_usertype = FALSE ";
+								func += " select = VALUE ";
+								func += " input = ";
+								func += y.Get();
+								func += " ";
+								func += argument;
+								func += " } } ";
+
+								wiz::load_data::LoadData::AddData(*mainUT, "/./",
+									func,
+									wiz::ExecuteData());
+								wiz::Option option;
+								if ("TRUE"sv == clauText.execute_module("Main = { $call = { id = __" + event_name + "__ } }", mainUT, wiz::ExecuteData(), option, 1)) {
+									mainUT->RemoveUserTypeList(mainUT->GetUserTypeListSize() - 1);
+								}
+								else {
+									mainUT->RemoveUserTypeList(mainUT->GetUserTypeListSize() - 1);
+
+									if (!print_off) {
+										wiz::Out << "clauText is not valid2" << ENTER;
+									}
+									return false;
+								}
+							}
+						}
+					}
+
+
+					iter.index++;
+					iter.itCount++;
+
+					for (int j = 0; j < text_idx.size(); ++j) {
+						iter.visited[text_idx[j]]++;
+						if (iter.visited[text_idx[j]] > 1) {
+							if (!print_off) {
+								wiz::Out << "dupllicated..\n";
+							}
+							return false;
+						}
+					}
+
+
+					que.push(iter);
+				}
+				else { // usertype..
+					// key = { } or  { }
+					Option opt_key = OptionFrom(iter.nowSchemaUT->GetUserTypeList(iter.utCount)->GetName(), eventUT, styleMap);
+
+					std::vector<long long> text_idx;
+
+					if (wiz::String::startsWith(opt_key.prefix, "$"sv)) {
+						if (opt_key.prefix == "$"sv) {
+							for (int k = 0; k < iter.nowTextUT->GetUserTypeListSize(); ++k) {
+								text_idx.push_back(k);
+							}
+						}
+						else {
+							if (opt_key.prefix == "$_"sv) {
+								text_idx = iter.nowTextUT->GetUserTypeItemIdx("");
+							}
+							else {
+								text_idx = iter.nowTextUT->GetUserTypeItemIdx(opt_key.prefix.substr(1));
+							}
+						}
+					}
+					else {
+						text_idx = iter.nowTextUT->GetUserTypeItemIdx(opt_key.prefix);
+					}
+
+
+					// chk optional, (required)
+					if (text_idx.empty() && opt_key.required == Option::Required_::OPTIONAL_) {
+						iter.index++;
+						iter.utCount++;
+
+						que.push(iter);
+
+						continue;
+					}
+					else if (text_idx.empty()) {
+						if (!print_off) {
+							wiz::Out << "it not optional..\n";
+						}
+
+						return false;
+					}
+
+					// DoA - chk minimum, maximum, type, regex,
+					for (int j = 0; j < text_idx.size(); ++j) {
+						int success = 0;
+						if (OptionDoA(opt_key, iter.nowTextUT->GetUserTypeList(text_idx[j])->GetName())) {
+							success++;
+						}
+						else {
+							if (!print_off) {
+								wiz::Out << "key is not valid\n" << opt_key.prefix <<"\n";
+							}
+						}
+						
+						if (success < 1) {
+							return false;
+						}
+					}
+
+					// chk enum.
+					{
+						if (!opt_key.enum_ids.empty()) {
+							std::vector<int> chk(text_idx.size(), 0);
+
+							for (int k = 0; k < opt_key.enum_ids.size(); ++k) {
+								auto ids = enumMap.find(opt_key.enum_ids[k]);
+
+								for (int j = 0; j < text_idx.size(); ++j) {
+									if (ids->second.end() != ids->second.find(iter.nowTextUT->GetUserTypeList(text_idx[j])->GetName())) {
+										chk[j]++;
+									}
+								}
+							}
+
+							for (int j = 0; j < chk.size(); ++j) {
+								if (0 == chk[j]) {
+									if (!print_off) {
+										wiz::Out << "key is not valid enum.\n";
+									}
+									return false;
+								}
+							}
+						}
+					}
+
+					// id //chk?
+					/*{
+						if (!opt_key.ids.empty()) {
+							for (int k = 0; k < opt_key.ids.size(); ++k) {
+								for (int j = 0; j < text_idx.size(); ++j) {
+									if (ids.find(opt_key.ids[k]) == ids.end()) {
+										ids.insert(std::make_pair(opt_key.ids[k], std::set<std::string>()));
+									}
+									auto x = ids.find(opt_key.ids[k]);
+									if (x->second.end() == x->second.find(iter.nowTextUT->GetUserTypeList(text_idx[j])->GetName())) {
+										x->second.insert(iter.nowTextUT->GetUserTypeList(text_idx[j])->GetName());
+									}
+									else {
+										if (!print_off) {
+											wiz::Out << "id is not valid.\n";
+										}
+										return false;
+									}
+								}
+							}
+						}
+					}*/
+
+					// need?					
+					for (size_t j = 0; j < opt_key.needs.size(); ++j) {
+						std::string old = iter.nowSchemaUT->GetUserTypeList(iter.utCount)->GetName();
+						old = old.substr(1, old.size() - 2);
+
+						if (auto _x = needMap.find(opt_key.needs[j]); _x != needMap.end()) {
+							while (_x != needMap.end()) {
+								if (_x->second == old) {
+									if (!print_off) {
+										wiz::Out << "need error\n";
+									}
+									return false;
+								}
+								_x = needMap.find(_x->second);
+							}
+						}
+
+						needMap.insert({ old, opt_key.needs[j] });
+
+
+						if (iter.nowSchemaUT->GetParent() != nullptr) {
+							if ((!iter.nowSchemaUT->GetItem("\"" + opt_key.needs[j] + "\"").empty()) ||
+								(!iter.nowSchemaUT->GetUserTypeItem("\"" + opt_key.needs[j] + "\"").empty())) {
+								//
+							}
+							else {
+								if (!print_off) {
+									wiz::Out << "err) need " << ("\"" + opt_key.needs[j] + "\"") << "\n";
+								}
+								return false;
+							}
+						}
+					}
+
+					// Event..
+					{
+						for (int t = 0; t < text_idx.size(); ++t) {
+							for (auto& x : opt_key.event_ids) {
+								auto y = iter.nowTextUT->GetUserTypeList(text_idx[t]);
+								wiz::load_data::UserType* mainUT = eventUT;
+								std::vector<std::string> vec = wiz::tokenize(x, '@');
+								std::string event_name = vec[0];
+								std::string argument;
+								if (vec.size() > 1) {
+									argument = vec[1].substr(1, vec[1].size() - 2);
+									argument = wiz::load_data::LoadData::ToBool4(nullptr, *mainUT, argument, wiz::ExecuteData()).ToString();
+								}
+
+								// for var // chk no start with __, no end with __ ?
+
+								std::string func = "Event = { id = __";
+
+								func += event_name;
+								func += "__ $call = { id = ";
+								func += event_name;
+								func += " name = ";
+								func += y->GetName().empty() ? "$NO_NAME" : y->GetName();
+								
+								func += " is_usertype = TRUE ";
+
+								func += " select = NAME ";
+								func += " input = ";
+								func += y->GetName().empty() ? "$NO_NAME" : y->GetName();
+								func += " ";
+								func += argument;
+								func += " } } ";
+
+								wiz::load_data::LoadData::AddData(*mainUT, "/./",
+									func,
+									wiz::ExecuteData());
+
+								wiz::Option opt;
+								if ("TRUE"sv == clauText.execute_module("Main = { $call = { id = __" + event_name + "__ } }", mainUT, wiz::ExecuteData(), opt, 1)) {
+									mainUT->RemoveUserTypeList(mainUT->GetUserTypeListSize() - 1);
+								}
+								else {
+									mainUT->RemoveUserTypeList(mainUT->GetUserTypeListSize() - 1);
+
+									std::cout << "clauText is not valid1" << ENTER;
+									return false;
+								}
+							}
+						}
+					}
+
+					for (int j = 0; j < text_idx.size(); ++j) {
+						iter.visited2[text_idx[j]]++;
+						if (iter.visited2[text_idx[j]] > 1) {
+							if (!print_off) {
+								wiz::Out << "dupllicated..\n";
+							}
+							return false;
+						}
+					}
+
+					iter.index++;
+					iter.utCount++;
+
+					// push to stack.
+					// chk now text ut -> child
+
+					for (int j = 0; j < text_idx.size(); ++j) {
+						que.push(Lint::ValidationInfo(iter.nowTextUT->GetUserTypeList(text_idx[j]), iter.nowSchemaUT->GetUserTypeList(iter.utCount - 1)));
+						que.back().visited = std::vector<int>(iter.nowTextUT->GetUserTypeList(text_idx[j])->GetItemListSize(), 0);
+						que.back().visited2 = std::vector<int>(iter.nowTextUT->GetUserTypeList(text_idx[j])->GetUserTypeListSize(), 0);
+					}
+					que.push(iter);
+				}
+			}
+			else { // i == iter.nowSchemaUT->GetIListSize()
+				// chk visited and visited2
+				for (int i = 0; i < iter.visited.size(); ++i) {
+					if (iter.visited[i] == 0) {
+						if (!print_off) {
+							wiz::Out << "no visit1\n";
+						}
+						return false;
+					}
+				}
+				for (int i = 0; i < iter.visited2.size(); ++i) {
+					if (iter.visited2[i] == 0) {
+						if (!print_off) {
+							wiz::Out << "no visit2\n";
+						}
+						return false;
+					}
+				}
 			}
 		}
 
-		clautextUT = wiz::load_data::UserType::Find(&schema_eventUT, start_name, &builder).second[0];
 
-		// for log?
-		bool log_on = false;
-		const bool chk = Check(&schema_eventUT, &schemaUT, clautextUT, 0, log_on);
-
-		{
-			wiz::ClauText clauText;
-
-			clauText.excute_module("Main = { $call = { id = __end__ } }", &schema_eventUT, wiz::ExcuteData(), opt, 1); // 0 (remove events) -> 1 (revoke events?)
-		}
-
-		//// debug
-		//std::cout << schema_eventUT.ToString() << ENTER
-		//	<< schemaUT.ToString() << ENTER;
-		return chk;
-	}
-
-	inline bool Validate(const wiz::load_data::UserType & schema)
-	{
-		return _Validate(schema);
-	}
-
-
-	// to do
-	//std::pair<bool, std::string> MakeSchema(const std::string& clautext)
-	//{
-	//	// to do
-	//}
-
-
-	inline std::pair<bool, wiz::load_data::UserType> LoadFile(const std::string & fileName)
-	{
-		wiz::load_data::UserType ut;
-
-		bool valid = wiz::load_data::LoadData::LoadDataFromFile5_2(fileName, ut, 0, 0);
-
-		return { valid, (ut) };
-	}
-	inline std::pair<bool, wiz::load_data::UserType> LoadJsonFile(const std::string & fileName)
-	{
-		wiz::load_data::UserType ut;
-
-		bool valid = wiz::load_data::LoadData::LoadDataFromFileFastJson(fileName, ut, 0, 0);
-
-		return { valid, (ut) };
-	}
-
-	// todo SaveJsonFile? for Make Schema?
-	inline bool SaveFile(const std::string & fileName, wiz::load_data::UserType * data)
-	{
-		wiz::load_data::LoadData::SaveWizDB(*data, fileName, "1");
 		return true;
 	}
-
-
 }
 
-int main(int argc, char* argv[])
-{
-	//auto chk_schema = Lint::LoadFile(
-	//	"C:\\Users\\vztpv\\Desktop\\Clau\\ClauText\\json_test.txt"); //
-		//argv[2]); // 3 -> 2
-//	return 0;
-	
-	//char buffer[] = "wow = zzz";
-	//wiz::load_data::UserType* x;
-	//wiz::load_data::UserType ut;
-	//ut.AddItem(std::string(buffer, 3), std::string(buffer+6, 3));
-//	ut.AddUserTypeItem(wiz::load_data::UserType(""));
-	//ut.AddUserTypeItem(wiz::load_data::UserType(""));
-//	ut.GetUserTypeList(0)->Remove();
 
-//	return 0;
-	
-	std::string option;
-	wiz::load_data::UserType schema; // argv[3]?
-	wiz::load_data::UserType clautext; // argv[2]
-	std::string fileName; // to save
+int main(int argc, char* argv[]) // program_name text_file schema_file
+{
+	if (argc != 3) {
+		std::cout << "text_file schema_file\n";
+		return -1;
+	}
 
 	try {
-		// -v : version? - to do
-		// -V : Validate.
-		// -M : Make schema. // removal?
-		if (argc == 3 && 0 == strcmp("-V", argv[1])) {
-			option = "-V";
 
-			//auto chk_clautext = Lint::LoadFile(argv[2]);
-			auto chk_schema = Lint::LoadFile(
-				//"C:\\Users\\vztpv\\Desktop\\Clau\\ClauText\\c.txt"); //
-				argv[2]); // 3 -> 2
+		std::string text_file = argv[1];
+		std::string schema_file = argv[2];
 
-			if (chk_schema.first) {
-				schema = std::move(chk_schema.second);
-			}
-			else {
-				std::cout << "schema load fail" << ENTER;
-				return 1;
-			}
-			//if (chk_clautext.first) {
-			//	clautext = std::move(chk_clautext.second);
-			//}
-			//else {
-			//	std::cout << "clautext load fail" << ENTER;
-			//	return 2;
-			//}
+		wiz::load_data::UserType* textUT = new wiz::load_data::UserType("Text");
+		wiz::load_data::UserType schemaUT;
+
+		if (!wiz::load_data::LoadData::LoadDataFromFile(text_file, *textUT)) {
+			std::cout << "loading text file is failed\n";
+			return -2;
 		}
-		else if (argc == 4 && 0 == strcmp("-M", argv[1])) {
-			option = "-M";
+		if (!wiz::load_data::LoadData::LoadDataFromFile3(schema_file, schemaUT, 0, 0)) {
+			std::cout << "loading schema file is failed\n";
+			return -3;
+		}
+		
+		schemaUT.LinkUserType(textUT);
 
-			auto chk_clautext = Lint::LoadFile(argv[2]);
+		// call __init__ Event...
+		{
+			wiz::ClauText clautext;
 
-			if (chk_clautext.first) {
-				clautext = std::move(chk_clautext.second);
-			}
-			else {
-				std::cout << "clautext load fail" << ENTER;
-				return 3;
-			}
-			fileName = argv[3];
+			wiz::Option opt;
+			clautext.execute_module(" Main = { $call = { id = __init__ } } ", &schemaUT, wiz::ExecuteData(), opt, 1);
 		}
 
-		if (option == "-V") {
-			auto chk = Lint::Validate(schema);
-			if (chk) {
-				std::cout << ENTER << "success" << ENTER;
-			}
-			else {
-				std::cout << ENTER << "fail" << ENTER;
-			}
+		// chk schemaUT has  Text = { }
+		auto x = schemaUT.GetUserTypeItem("Schema");
+
+		if (x.empty()) {
+			std::cout << "schema is not valid\n";
+			return -4;
 		}
-		else if (option == "-M") {
-			//	auto chk = MakeSchema(clautext);
-			//	if (chk.first) {
-			//		schema = chk.second;
 
-			//		if (SaveFile(fileName, schema)) {
+		auto styleList = schemaUT.GetUserTypeItem("Style");
+		std::map<std::string, wiz::load_data::UserType*> style_map;
 
-			//		}
-			//		else {
-			//			std::cout << "save fail" << ENTER;
-			//			return 4;
-			//		}
+		for (auto x : styleList) {
+			style_map.insert(std::make_pair(x->GetItem("id")[0].Get(), x));
+		}
 
-			//		std::cout << "success" << ENTER;
-			//	}
-			//	else {
-			//		std::cout << "fail" << ENTER;
-			//	}
+		auto enumList = schemaUT.GetUserTypeItem("Enum");
+		std::map<std::string, std::set<std::string>> enum_map;
+
+		for (auto x : enumList) {
+			std::set<std::string> _list;
+
+			for (int i = 0; i < x->GetItemListSize(); ++i) {
+				if (x->GetItemList(i).GetName().empty()) {
+					_list.insert(x->GetItemList(i).Get());
+				}
+			}
+
+			enum_map.insert(std::make_pair(x->GetItem("id")[0].Get(), _list));
+		}
+
+		if (!Lint::Validate(textUT, x[0], &schemaUT, style_map, enum_map)) {
+			std::cout << "text file is not valid with schema\n";
+			return -5;
 		}
 		else {
-			std::cout << "it is not valid option" << ENTER;
+			std::cout << "success\n";
 		}
-	}
-	catch (const char* str) {
-		std::cout << str << "\n";
+
+
+		// call __end__ Event...
+		{
+			wiz::ClauText clautext;
+
+			wiz::Option opt;
+			clautext.execute_module(" Main = { $call = { id = __end__ } } ", &schemaUT, wiz::ExecuteData(), opt, 1);
+		}
+
 	}
 	catch (...) {
-		std::cout << "unknown error\n";
+		std::cout << "internal error\n";
+		return -100;
 	}
+
 	return 0;
 }
-
 

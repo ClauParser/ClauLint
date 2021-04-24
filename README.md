@@ -1,2 +1,2 @@
 # ClauLint
-using clauscript.
+using [clauscript](https://github.com/vztpv/ClauScript)
